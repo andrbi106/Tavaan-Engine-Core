@@ -152,13 +152,20 @@ abstract class Engine implements EngineInterface
         $this->container = $container;
 
         // ثبت Service Providerهای تعریف‌شده در manifest
+        // از reflection برای سازگاری با constructorهای مختلف استفاده می‌شود
         foreach ($this->manifest->providers() as $providerClass) {
             if (!class_exists($providerClass)) {
                 continue;
             }
-            /** @var \Tavaan\Core\Provider\ServiceProvider $provider */
-            $provider = new $providerClass($container);
-            $provider->register();
+
+            $provider = $this->instantiateProvider($providerClass, $container);
+
+            if (method_exists($provider, 'register')) {
+                $provider->register();
+            }
+
+            // ثبت provider در container برای boot بعدی
+            $container->instance($providerClass, $provider);
         }
     }
 
@@ -173,7 +180,6 @@ abstract class Engine implements EngineInterface
         if ($this->container !== null) {
             foreach ($this->manifest->providers() as $providerClass) {
                 if ($this->container->has($providerClass)) {
-                    /** @var \Tavaan\Core\Provider\ServiceProvider $provider */
                     $provider = $this->container->make($providerClass);
                     if (method_exists($provider, 'boot')) {
                         $provider->boot();
@@ -183,6 +189,63 @@ abstract class Engine implements EngineInterface
         }
 
         $this->booted = true;
+    }
+
+    /**
+     * Instantiate یک ServiceProvider با constructor signature دلخواه.
+     *
+     * از reflection برای تشخیص پارامترهای constructor استفاده می‌کند:
+     * - اگر پارامتر ContainerInterface باشد → container پاس داده می‌شود
+     * - اگر پارامتر کلاس قابل resolve باشد → از container resolve می‌شود
+     * - در غیر این صورت → default value یا null
+     *
+     * @param string $providerClass
+     * @param ContainerInterface $container
+     * @return object
+     */
+    private function instantiateProvider(string $providerClass, ContainerInterface $container): object
+    {
+        $reflection = new \ReflectionClass($providerClass);
+        $constructor = $reflection->getConstructor();
+
+        // اگر constructor ندارد — بدون آرگومان
+        if ($constructor === null) {
+            return new $providerClass();
+        }
+
+        $args = [];
+        foreach ($constructor->getParameters() as $param) {
+            $type = $param->getType();
+
+            if ($type instanceof \ReflectionNamedType && !$type->isBuiltin()) {
+                $typeName = $type->getName();
+
+                // اگر پارامتر ContainerInterface است → container پاس بده
+                if ($typeName === ContainerInterface::class
+                    || $typeName === 'Tavaan\\Core\\Contracts\\Container\\ContainerInterface'
+                    || is_subclass_of($typeName, ContainerInterface::class)) {
+                    $args[] = $container;
+                    continue;
+                }
+
+                // اگر کلاس در container موجود است → resolve کن
+                if (class_exists($typeName) && $container->has($typeName)) {
+                    try {
+                        $args[] = $container->make($typeName);
+                        continue;
+                    } catch (\Throwable) {
+                        // resolve ناموفق — به default برو
+                    }
+                }
+            }
+
+            // default value یا null
+            $args[] = $param->isDefaultValueAvailable()
+                ? $param->getDefaultValue()
+                : null;
+        }
+
+        return $reflection->newInstanceArgs($args);
     }
 
     public function isBooted(): bool
