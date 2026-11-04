@@ -1,0 +1,16 @@
+{
+    "name": "andrbi106/tavaan-engine-core",
+    "description": "Tavaan Engine-Core — موتور والد همهٔ موتورهای تَوان. شامل کلاس پایهٔ Engine، درگاه EngineBus، و مدیریت موتورها (Registry/Loader/Manifest/Context/ServiceProvider).",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": ">=8.2.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Tavaan\\EngineCore\\": "src/"
+        }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
+}
